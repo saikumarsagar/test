@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jenkins
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: jenkins
+  namespace: jenkins # Use the jenkins namespace
+spec:
+  accessModes:
+    - ReadWriteOnce # Allow this to be mounted ONLY by a single node
+  resources:
+    requests:
+      storage: 5Gi # Request for 5Gi of persistent disk storage
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins
+  namespace: jenkins # Use the jenkins namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-executors
+  namespace: jenkins
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/exec
+      - pods/log
+      - persistentvolumeclaims
+      - events
+    verbs: 
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources: 
+      - pods
+      - pods/exec
+      - persistentvolumeclaims
+    verbs:
+      - create
+      - delete
+      - deletecollection
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins
+  namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-executors # Mention the Role name
+subjects:
+  - kind: ServiceAccount
+    name: jenkins # Mention the service account name
+    namespace: jenkins
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: jenkins # Use above namespace
+  name: jenkins
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      serviceAccountName: jenkins
+      containers:
+        - name: jenkins
+          image: jenkins/jenkins:2.375.1-lts # Uses jenkins 2.375.1
+
+      # New volumes section
+          volumeMounts:
+          - name: jenkins-data
+            mountPath: /var/jenkins_home
+      volumes:
+        - name: jenkins-data
+          persistentVolumeClaim:
+            claimName: jenkins
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins
+  namespace: jenkins # Jenkins namespace
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8080
+      name: master    # Set a the port's name
+    - port: 50000     # Enable port for executors
+      name: executors # Set a the port's name
+  selector:
+    app: jenkins # Labels defined in the above deployment
